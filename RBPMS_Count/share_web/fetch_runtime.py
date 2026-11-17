@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 
@@ -13,7 +14,8 @@ def fetch(name, checksum=None):
     if checksum and target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest() == checksum:
         return
     temporary = target.with_suffix(target.suffix + ".partial")
-    subprocess.run(["curl.exe", "-fLsS", "--retry", "2", "--max-time", "480",
+    curl = "curl.exe" if os.name == "nt" else "curl"
+    subprocess.run([curl, "-fLsS", "--retry", "2", "--max-time", "480",
                     base + name, "-o", str(temporary)], check=True)
     if checksum and hashlib.sha256(temporary.read_bytes()).hexdigest() != checksum:
         raise RuntimeError("Checksum mismatch: " + name)
@@ -40,3 +42,4 @@ downloads.extend((packages[name]["file_name"], packages[name]["sha256"]) for nam
 with ThreadPoolExecutor(max_workers=20) as pool:
     list(pool.map(lambda item: fetch(*item), downloads))
 print(sum(file.stat().st_size for file in root.iterdir()), "bytes", flush=True)
+
