@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RBPMS 细胞审核</title>
+<link rel="stylesheet" href="/style.css">
+<script type="module" src="/app.js"></script>
+</head>
+<body>
+<header><h1>RBPMS <span>细胞审核</span></h1><span id="status" role="status">正在加载项目…</span></header>
+<main>
+<aside>
+<h2>项目图像</h2>
+<form id="import">
+<label>原始图像 <input name="image" type="file" accept=".png" required></label>
+<label>RBPMS 通道 <select name="channel"><option value="auto">自动判断</option><option value="green">绿色</option><option value="red">红色</option></select></label>
+<details><summary>使用已有 V3 结果</summary>
+<label>16-bit 标签图 <input name="labels" type="file" accept=".png"></label>
+<label>候选细胞表 <input name="cells" type="file" accept=".csv"></label>
+</details>
+<button class="primary" id="importButton">导入图像</button>
+</form>
+<p class="hint">仅选原图时自动运行 V3。原图和已有结果须来自同一视野。</p>
+<button id="showBatch" type="button">批量计数</button>
+<div id="quickBatchDrop" class="batch-drop">拖入最外层文件夹，立即导入并计数</div>
+<p><button id="manageImages" type="button">管理项目图像</button></p>
+<p><a href="/api/summary.csv">项目汇总 CSV</a></p>
+<nav id="images" aria-label="项目图像"></nav>
+</aside>
+<section id="workspace" aria-label="图像工作区">
+<div class="toolbar">
+<button id="fit">适合窗口</button><button id="actual">100%</button><output id="zoom"></output>
+<label>操作 <select id="mode"><option value="toggle">智能切换</option><option value="add">添加 / 确认</option><option value="remove">排除</option><option value="pan">仅平移</option></select></label>
+<button id="undo" disabled>撤销</button><button id="redo" disabled>重做</button>
+</div>
+<div id="viewport"><canvas id="canvas" aria-label="细胞图像与审核标注"></canvas><p id="empty">导入 PNG 后，在此审核细胞候选</p></div>
+<p class="hint">滚轮缩放 · 拖动平移 · 点击审核 · Ctrl+Z 撤销 · Ctrl+Y 重做</p>
+</section>
+<aside>
+<h2>当前计数</h2>
+<div class="total"><output id="total">—</output><span>当前计入</span></div>
+<dl id="counts"></dl>
+<progress id="progress" value="0" max="1" aria-label="候选审核进度"></progress>
+<button class="primary" id="completeReview" disabled>完成审核</button>
+<button id="reopenReview" hidden>继续审核</button>
+<div class="toolbar">
+<button id="includeWeak" disabled>全部纳入弱阳性</button>
+<button id="includeArtifacts" disabled>全部纳入疑似伪影</button>
+</div>
+<p class="hint" id="reviewStatus"></p>
+<h2>标注显示</h2>
+<div class="options">
+<label><input id="overlay" type="checkbox" checked> 显示标注</label>
+<label><input class="filter" type="checkbox" value="strong_candidate" checked> <i style="background:#00ffff"></i> 高可信</label>
+<label><input class="filter" type="checkbox" value="weak_review" checked> <i style="background:#ffeb28"></i> 弱阳性</label>
+<label><input class="filter" type="checkbox" value="rejected_review" checked> <i style="background:#ff46cd"></i> 疑似伪影</label>
+<label><input id="ids" type="checkbox"> 细胞编号</label>
+<label>轮廓线宽 <input id="lineWidth" type="range" min="1" max="6" value="1"></label>
+</div>
+<h2>导出</h2>
+<div id="exports" hidden><a id="csv">当前图像计数 CSV</a><a id="png">标注 PNG</a></div>
+</aside>
+</main>
+<dialog id="batch">
+<h2>批量计数</h2>
+<div class="toolbar">
+<button id="pickBatchRoot" type="button" hidden>选择最外层文件夹</button>
+<div id="batchDrop" class="batch-drop">从文件资源管理器把最外层文件夹拖到这里</div>
+<label>系统文件夹选择 <input id="batchFolder" type="file" webkitdirectory multiple></label>
+<label>文件名后缀 <input id="batchSuffix" value="_c1" size="10"></label>
+<button id="scanBatch">生成清单</button>
+<label>应用到清单 <select id="batchChannel"><option value="auto">自动判断</option><option value="green">绿色</option><option value="red">红色</option></select></label>
+</div>
+<p class="hint">递归扫描子文件夹。只有一张 PNG 时直接选取，包括合并通道图。有多张时选第一张匹配后缀的 PNG，并跳过标为 DAPI 或合并通道的图像。</p>
+<p id="batchStatus" role="status">请选择文件夹</p>
+<div id="batchList"></div>
+<details id="batchReport" open><summary id="batchReportTitle">子文件夹导入检查</summary>
+<label><input type="checkbox" id="batchMissingOnly" checked> 只看未全部导入</label>
+<div id="batchReportRows"></div>
+</details>
+<div class="toolbar">
+<button class="primary" id="startBatch">计数所选图像</button><button id="pauseBatch" disabled>暂停</button><button id="closeBatch">关闭</button>
+<button id="manageBatch" type="button" disabled>管理本批已导入图像</button>
+<a href="/api/summary.csv">下载项目汇总</a>
+</div>
+</dialog>
+<dialog id="manage">
+<h2>管理项目图像</h2>
+<div class="toolbar">
+<label>范围 <select id="manageScope"><option value="active">项目图像</option><option value="archived">已移除</option></select></label>
+<label><input type="checkbox" id="manageAll"> 全选</label>
+</div>
+<p class="hint">暂时不用看这一批，就先移除。下次重新导入同一张图，之前的审核记录会一起回来。</p>
+<p id="manageStatus" role="status"></p>
+<div id="manageList"></div>
+<div class="toolbar"><button id="manageApply" type="button" disabled>移除所选</button><button id="manageClose" type="button">关闭</button></div>
+</dialog>
+<dialog id="preview"><h2 id="previewTitle"></h2><img id="previewImage" alt="原图预览"><form method="dialog"><button>关闭预览</button></form></dialog>
+</body>
+</html>
+

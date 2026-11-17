@@ -1,0 +1,5 @@
+scikit-image>=0.26,<0.27
+opencv-python>=4.8,<6
+numpy>=1.24,<3
+scipy>=1.11
+Pillow>=10
