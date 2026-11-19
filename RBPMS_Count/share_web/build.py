@@ -19,7 +19,7 @@ html = (root / "web_review" / "index.html").read_text(encoding="utf-8")
 html = html.replace("正在加载项目…", "正在加载浏览器计数引擎…")
 (dist / "index.html").write_text(html, encoding="utf-8")
 js = (root / "web_review" / "app.js").read_text(encoding="utf-8-sig")
-js = 'import {localRequest} from "/local-request.js";\n' + js.replace("await fetch(url, options)", "await localRequest(url, options)")
+js = 'import {localRequest} from "/local-request.js";\n' + js.replace("await fetch(", "await localRequest(")
 js = js.replace('original.src = "/api/images/" + id + "/source.png";\n    await original.decode();',
     'const response = await localRequest("/api/images/" + id + "/source.png");\n'
     '    if (!response.ok) throw new Error("无法打开原图");\n'

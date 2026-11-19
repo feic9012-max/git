@@ -13,7 +13,7 @@
 <aside>
 <h2>项目图像</h2>
 <form id="import">
-<label>原始图像 <input name="image" type="file" accept=".png" required></label>
+<label>原始图像 <input name="image" type="file" accept=".png,.tif,.tiff" required></label>
 <label>RBPMS 通道 <select name="channel"><option value="auto">自动判断</option><option value="green">绿色</option><option value="red">红色</option></select></label>
 <details><summary>使用已有 V3 结果</summary>
 <label>16-bit 标签图 <input name="labels" type="file" accept=".png"></label>
@@ -21,7 +21,7 @@
 </details>
 <button class="primary" id="importButton">导入图像</button>
 </form>
-<p class="hint">仅选原图时自动运行 V3。原图和已有结果须来自同一视野。</p>
+<p class="hint">支持 PNG、单页 TIF/TIFF；16-bit TIFF 按全量程转换为 8-bit 后计数。仅选原图时自动运行 V3。原图和已有结果须来自同一视野。</p>
 <button id="showBatch" type="button">批量计数</button>
 <div id="quickBatchDrop" class="batch-drop">拖入最外层文件夹，立即导入并计数</div>
 <p><button id="manageImages" type="button">管理项目图像</button></p>
@@ -34,7 +34,7 @@
 <label>操作 <select id="mode"><option value="toggle">智能切换</option><option value="add">添加 / 确认</option><option value="remove">排除</option><option value="pan">仅平移</option></select></label>
 <button id="undo" disabled>撤销</button><button id="redo" disabled>重做</button>
 </div>
-<div id="viewport"><canvas id="canvas" aria-label="细胞图像与审核标注"></canvas><p id="empty">导入 PNG 后，在此审核细胞候选</p></div>
+<div id="viewport"><canvas id="canvas" aria-label="细胞图像与审核标注"></canvas><p id="empty">导入 PNG/TIF/TIFF 后，在此审核细胞候选</p></div>
 <p class="hint">滚轮缩放 · 拖动平移 · 点击审核 · Ctrl+Z 撤销 · Ctrl+Y 重做</p>
 </section>
 <aside>
@@ -72,7 +72,7 @@
 <button id="scanBatch">生成清单</button>
 <label>应用到清单 <select id="batchChannel"><option value="auto">自动判断</option><option value="green">绿色</option><option value="red">红色</option></select></label>
 </div>
-<p class="hint">递归扫描子文件夹。只有一张 PNG 时直接选取，包括合并通道图。有多张时选第一张匹配后缀的 PNG，并跳过标为 DAPI 或合并通道的图像。</p>
+<p class="hint">递归扫描子文件夹。只有一张 PNG/TIF/TIFF 时直接选取，包括合并通道图。有多张时选第一张匹配后缀的图像，并跳过标为 DAPI 或合并通道的图像。</p>
 <p id="batchStatus" role="status">请选择文件夹</p>
 <div id="batchList"></div>
 <details id="batchReport" open><summary id="batchReportTitle">子文件夹导入检查</summary>

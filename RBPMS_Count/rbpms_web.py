@@ -17,12 +17,39 @@ from urllib.parse import urlsplit
 import webbrowser
 
 import cv2
+import numpy as np
+from PIL import Image, UnidentifiedImageError
 from rbpms_counter_v2 import select_channel
 from rbpms_counter_v3 import classify_image, read_png
 from rbpms_review_gui import ReviewModel
 
 STATIC = Path(__file__).with_name("web_review")
 LIMIT = 64 * 1024 * 1024
+
+
+def import_png(name, original):
+    extension = Path(name).suffix.lower()
+    if extension == ".png" and original.startswith(b"\x89PNG\r\n\x1a\n"):
+        return original
+    if extension not in (".tif", ".tiff"):
+        raise ValueError("请选择 PNG、TIF 或 TIFF 原图")
+    try:
+        with Image.open(io.BytesIO(original)) as image:
+            if image.format != "TIFF":
+                raise ValueError("文件内容不是有效的 TIFF 图像")
+            if image.n_frames != 1:
+                raise ValueError("此 TIFF 包含多页图像，请先导出要计数的单页或投影图，再导入")
+            if image.mode in ("I", "F"):
+                raise ValueError("暂不支持有符号整数或浮点 TIFF，请先转换为 8-bit 或 16-bit 无符号图像")
+            if image.mode.startswith("I;16"):
+                # Keep one fixed intensity scale for all images, matching 16-to-8-bit export.
+                pixels = np.asarray(image).astype(np.float64)
+                image = Image.fromarray(np.rint(pixels / 257).astype(np.uint8))
+            output = io.BytesIO()
+            image.convert("RGB").save(output, format="PNG")
+            return output.getvalue()
+    except (UnidentifiedImageError, OSError, EOFError) as error:
+        raise ValueError("无法读取 TIFF 图像，请检查文件是否完整或重新导出") from error
 
 
 class Project:
@@ -72,8 +99,8 @@ class Project:
         return ReviewModel(folder / "source.png", folder / segmentation_dir)
 
     def ingest(self, name, original, labels=None, cells=None, *, channel="green", image_path=""):
-        if not name.lower().endswith(".png") or not original.startswith(b"\x89PNG\r\n\x1a\n"):
-            raise ValueError("请选择 8-bit PNG 原图")
+        if Path(name).suffix.lower() not in (".png", ".tif", ".tiff"):
+            raise ValueError("请选择 PNG、TIF 或 TIFF 原图")
         if (labels is None) != (cells is None):
             raise ValueError("导入 V3 结果时需要同时选择标签 PNG 和候选 CSV")
         if channel not in ("auto", "red", "green"):
@@ -108,7 +135,7 @@ class Project:
                 staging = Path(temporary) / "image"
                 staging.mkdir()
                 image = staging / "source.png"
-                image.write_bytes(original)
+                image.write_bytes(import_png(name, original))
                 if labels is None:
                     channel = classify_image(image, staging, channel=channel)["channel"]
                 else:
@@ -404,7 +431,7 @@ class Handler(BaseHTTPRequestHandler):
                         raise ValueError("无效的图像管理请求")
                     project.archive(change.get("ids"), change.get("archived"))
                     return self.send_json({"ok": True})
-                if path == "/api/import":
+                if path in ("/api/import", "/api/preview"):
                     content_type = self.headers.get("Content-Type", "")
                     envelope = BytesParser(policy=policy.default).parsebytes(
                         f"Content-Type: {content_type}\r\n\r\n".encode() + body)
@@ -416,6 +443,8 @@ class Handler(BaseHTTPRequestHandler):
                     if image is None or not image.get_filename():
                         raise ValueError("请选择原图")
                     name = image.get_filename().replace("\\", "/").split("/")[-1]
+                    if path == "/api/preview":
+                        return self.respond(import_png(name, image.get_payload(decode=True)), "image/png")
                     def field(key, default):
                         part = files.get(key)
                         return part.get_payload(decode=True).decode("utf-8") if part is not None else default

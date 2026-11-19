@@ -300,6 +300,8 @@ byId("preview").onclose = () => {
 
 let batchFiles = [];
 let batchDirectories = new Set(), batchReadErrors = new Map(), batchHasEmptyFolders = false;
+const supportedImage = name => /\.(png|tiff?)$/i.test(name);
+const imageStem = name => name.replace(/\.[^.]+$/, "").toLowerCase();
 const parentFolder = path => path.slice(0, path.lastIndexOf("/"));
 const excludedChannel = stem => /_(?:c2|c\d+\+\d+|dapi)$/.test(stem);
 
@@ -322,16 +324,16 @@ function renderBatchReport() {
         const done = finished.length > 0 && !remaining.length && !errors.length;
         if (done) complete++;
         if (done && byId("batchMissingOnly").checked) continue;
-        const png = files.filter(({path}) => /\.png$/i.test(path));
-        const eligible = png.filter(({path}) => !excludedChannel(path.slice(0,-4).toLowerCase()));
+        const png = files.filter(({path}) => supportedImage(path));
+        const eligible = png.filter(({path}) => !excludedChannel(imageStem(path)));
         const notes = [...errors];
         if (finished.length) notes.push(finished.map(item => item.file.name + " · " + item.outcome).join("、"));
         for (const item of remaining) notes.push(item.file.name + " · " + item.result.textContent);
         if (!rows.length && !errors.length) {
             if (!files.length) notes.push("没有文件");
-            else if (!png.length) notes.push("没有 PNG · " + files.map(item => item.path.split("/").at(-1)).join("、"));
-            else if (!eligible.length) notes.push("PNG 全部标为 DAPI 或合并通道");
-            else notes.push("没有匹配后缀的 PNG · " + eligible.map(item => item.path.split("/").at(-1)).join("、"));
+            else if (!png.length) notes.push("没有 PNG/TIF/TIFF · " + files.map(item => item.path.split("/").at(-1)).join("、"));
+            else if (!eligible.length) notes.push("图像全部标为 DAPI 或合并通道");
+            else notes.push("没有匹配后缀的图像 · " + eligible.map(item => item.path.split("/").at(-1)).join("、"));
         } else if (rows.length && !finished.length && !remaining.length) notes.push("没有勾选图片");
         const line = document.createElement("p");
         line.textContent = path + " — " + notes.join("；");
@@ -377,7 +379,7 @@ batchDrop.ondrop = quickBatchDrop.ondrop = async event => {
                         if (!children.length) break;
                         for (const child of children) await scan(child);
                     }
-                } else if (/\.png$/i.test(entry.name)) {
+                } else if (supportedImage(entry.name)) {
                     const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
                     found.push({file, path});
                 } else {
@@ -423,7 +425,7 @@ pickRoot.onclick = () => run(async () => {
             for await (const entry of directory.values()) {
                 const path = parent + "/" + entry.name;
                 if (entry.kind === "directory") await scan(entry, path);
-                else if (/\.png$/i.test(entry.name)) {
+                else if (supportedImage(entry.name)) {
                     try { found.push({path, file:await entry.getFile()}); }
                     catch (error) { batchReadErrors.set(path, "读取失败 · " + error.message); }
                 } else found.push({path});
@@ -445,17 +447,17 @@ pickRoot.onclick = () => run(async () => {
 
 function scanBatch() {
     const suffix = byId("batchSuffix").value.trim().toLowerCase() || "_c1";
-    const pngCounts = new Map();
+    const imageCounts = new Map();
     for (const {file, path} of batchFiles) {
-        if (!file || !/\.png$/i.test(file.name)) continue;
+        if (!file || !supportedImage(file.name)) continue;
         const folder = path.slice(0, path.lastIndexOf("/"));
-        pngCounts.set(folder, (pngCounts.get(folder) ?? 0) + 1);
+        imageCounts.set(folder, (imageCounts.get(folder) ?? 0) + 1);
     }
     const files = batchFiles.filter(({file, path}) => {
         if (!file) return false;
-        const stem = file.name.slice(0, -4).toLowerCase();
+        const stem = imageStem(file.name);
         const folder = path.slice(0, path.lastIndexOf("/"));
-        return /\.png$/i.test(file.name) && (pngCounts.get(folder) === 1 ||
+        return supportedImage(file.name) && (imageCounts.get(folder) === 1 ||
             (stem.endsWith(suffix) && !excludedChannel(stem)));
     }).sort((a, b) => a.path.localeCompare(b.path, "zh-CN", {numeric:true}) ||
         (a.path < b.path ? -1 : Number(a.path > b.path)));
@@ -478,12 +480,20 @@ function scanBatch() {
         channel.setAttribute("aria-label", "通道 " + file.name);
         const preview = document.createElement("button");
         preview.textContent = "预览";
-        preview.onclick = () => {
-            previewUrl = URL.createObjectURL(file);
+        preview.onclick = () => run(async () => {
+            let blob = file;
+            if (/\.tiff?$/i.test(file.name)) {
+                const body = new FormData();
+                body.append("image", file);
+                const response = await fetch("/api/preview", {method:"POST", headers:{"X-RBPMS":"1"}, body});
+                if (!response.ok) throw new Error((await response.json()).error);
+                blob = await response.blob();
+            }
+            previewUrl = URL.createObjectURL(blob);
             byId("previewTitle").textContent = file.name;
             byId("previewImage").src = previewUrl;
             byId("preview").showModal();
-        };
+        });
         const result = document.createElement("output");
         result.textContent = check.checked ? "待计数" : "待选择";
         row.append(check, name, channel, preview, result);
@@ -503,7 +513,7 @@ function scanBatch() {
     });
     byId("manageBatch").disabled = true;
     byId("batchList").replaceChildren(...batchRows.map(item => item.row));
-    byId("batchStatus").textContent = files.length ? "找到 " + files.length + " 张图像，请确认清单" : "未找到匹配的 PNG";
+    byId("batchStatus").textContent = files.length ? "找到 " + files.length + " 张图像，请确认清单" : "未找到匹配的 PNG/TIF/TIFF";
     renderBatchReport();
 }
 byId("scanBatch").onclick = scanBatch;

@@ -76,7 +76,8 @@ try {
     const doc = await send("DOM.getDocument");
     const sample = readdirSync("images").find(name => name.endsWith("_c1.png"));
     async function file(name, path) {
-        const {nodeId} = await send("DOM.querySelector", {nodeId:doc.root.nodeId, selector:"input[name=" + name + "]"});
+        const currentDoc = await send("DOM.getDocument");
+        const {nodeId} = await send("DOM.querySelector", {nodeId:currentDoc.root.nodeId, selector:"input[name=" + name + "]"});
         await send("DOM.setFileInputFiles", {nodeId,files:[resolve(path)]});
     }
     await file("image", join("images",sample));
@@ -149,9 +150,11 @@ try {
         "import cv2, numpy as np, sys",
         "from pathlib import Path",
         "from rbpms_counter_v3 import save_png",
+        "from PIL import Image",
         "rgb = np.zeros((128,128,3), np.uint8)",
         "cv2.circle(rgb,(45,50),12,(220,0,0),-1)",
-        "for name in ('视网膜_c1.png','视网膜2_c1.png','视网膜_c2.png','视网膜_c1+2.png'): save_png(Path(sys.argv[1])/name,rgb)"
+        "for name in ('视网膜_c2.png','视网膜_c1+2.png'): save_png(Path(sys.argv[1])/name,rgb)",
+        "for name in ('视网膜_c1.TIFF','视网膜2_c1.tif'): Image.fromarray(rgb).save(Path(sys.argv[1])/name,compression='tiff_lzw')"
     ].join("\n"), folder], {encoding:"utf8"});
     assert.equal(fixture.status, 0, fixture.stderr);
     const fixtureFiles = readdirSync(folder).map(name => ({name, data: Array.from(readFileSync(join(folder,name)))}));
@@ -173,7 +176,7 @@ try {
     })()`);
     await waitFor("document.querySelectorAll('.batch-row').length === 2");
     assert.equal(await evalPage("document.querySelectorAll('.batch-row input:checked').length"), 1);
-    assert.match(await evalPage("document.querySelector('.batch-row label').textContent"), /批次\/样本\/左眼\/视网膜_c1\.png/);
+    assert.match(await evalPage("document.querySelector('.batch-row label').textContent"), /批次\/样本\/左眼\/视网膜_c1\.TIFF/);
     await waitFor("document.querySelector('#batchStatus').textContent === '已处理 1 / 1，失败 0'");
     await waitFor("document.querySelector('#batchReportTitle').textContent.includes('1 / 2')");
     assert.match(await evalPage("document.querySelector('#batchReportRows').textContent"), /空目录.*没有文件/);
@@ -181,7 +184,7 @@ try {
     assert.equal(batchImages.length, 2);
     assert.equal(batchImages[0].channel, "red");
     assert.equal(batchImages[0].auto_count, 1);
-    assert.equal(batchImages[0].image_path, "批次/样本/左眼/视网膜_c1.png");
+    assert.equal(batchImages[0].image_path, "批次/样本/左眼/视网膜_c1.TIFF");
     const summary = await evalPage("fetch('/api/summary.csv').then(r=>r.text())");
     assert.match(summary, /左眼,1,\r\n/);
     await evalPage(`(() => {
@@ -222,6 +225,24 @@ try {
     await evalPage("document.querySelector('#manageAll').click(); document.querySelector('#manageApply').click()");
     await waitFor("document.querySelector('#manageStatus').textContent === '已恢复 1 张图像'");
     assert.match(await evalPage("fetch('/api/summary.csv').then(r=>r.text())"), /左眼,1,/);
+    await evalPage("document.querySelector('#manageClose').click()");
+    const gray = join(temp, '16bit.tif');
+    const grayFixture = spawnSync(resolve('.venv/Scripts/python.exe'), ['-c',
+        "import numpy as np, cv2, sys; from PIL import Image; x=np.zeros((128,128),np.uint16); cv2.circle(x,(45,50),12,56540,-1); Image.fromarray(x).save(sys.argv[1],compression='tiff_lzw')", gray], {encoding:'utf8'});
+    assert.equal(grayFixture.status, 0, grayFixture.stderr);
+    await evalPage("document.querySelector('[name=labels]').value=''; document.querySelector('[name=cells]').value=''; document.querySelector('[name=channel]').value='red'");
+    await file('image', gray);
+    await evalPage("document.querySelector('#importButton').click()");
+    await waitFor("document.querySelector('#status').textContent.includes('16bit.tif') && !document.querySelector('#exports').hidden");
+    assert.equal(await count(), 1);
+    const tiffBytes = Array.from(readFileSync(gray));
+    assert.ok(await evalPage(`(async () => {
+        const body = new FormData(); body.append('image',new File([new Uint8Array(${JSON.stringify(tiffBytes)})],'preview.tif'));
+        const r = await fetch('/api/preview',{method:'POST',headers:{'X-RBPMS':'1'},body});
+        if (!r.ok) throw new Error(await r.text());
+        const bitmap = await createImageBitmap(await r.blob());
+        return bitmap.width === 128 && bitmap.height === 128;
+    })()`));
     console.log("Browser: review, CSV and PNG exports, red batch count, and viewport with a long image list passed");
 } finally {
     ws?.close();
@@ -229,7 +250,3 @@ try {
     await delay(1500);
     rmSync(temp,{recursive:true,force:true,maxRetries:5,retryDelay:250});
 }
-
-
-
-

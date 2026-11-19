@@ -6,8 +6,9 @@ import unittest
 
 import cv2
 import numpy as np
+from PIL import Image
 
-from rbpms_web import Conflict, Project
+from rbpms_web import Conflict, Project, import_png
 
 
 def png(image):
@@ -15,6 +16,34 @@ def png(image):
 
 
 class ReviewTest(unittest.TestCase):
+    def test_tiff_import(self):
+        rgb = np.zeros((128, 128, 3), np.uint8)
+        cv2.circle(rgb, (45, 50), 12, (220, 0, 0), -1)
+        def tiff(image, **options):
+            output = io.BytesIO()
+            Image.fromarray(image).save(output, format="TIFF", **options)
+            return output.getvalue()
+        with TemporaryDirectory(dir=Path.cwd()) as directory:
+            project = Project(Path(directory))
+            original = tiff(rgb, compression="tiff_lzw")
+            image_id, created = project.ingest("原图.TIFF", original, channel="auto",
+                                              image_path="样本/文件夹/原图.TIFF")
+            state = project.review(image_id, contours=True)
+            self.assertTrue(created)
+            self.assertEqual((state["channel"], len(state["included"])), ("red", 1))
+            self.assertEqual(project.ingest("原图.TIFF", original, channel="auto"), (image_id, False))
+            self.assertEqual(list(csv.reader(io.StringIO(project.summary_csv().decode("utf-8-sig"))))[1],
+                             ["文件夹", "1", ""])
+            gray16 = rgb[:, :, 0].astype(np.uint16) * 257
+            converted = cv2.imdecode(np.frombuffer(import_png("gray.tif", tiff(gray16)), np.uint8), -1)
+            np.testing.assert_array_equal(converted[:, :, 0], rgb[:, :, 0])
+            gray_id, _ = project.ingest("gray.tif", tiff(gray16), channel="red")
+            self.assertEqual(len(project.review(gray_id)["included"]), 1)
+            with self.assertRaisesRegex(ValueError, "多页"):
+                project.ingest("stack.tif", tiff(rgb, save_all=True, append_images=[Image.fromarray(rgb)]))
+            with self.assertRaisesRegex(ValueError, "无法读取"):
+                project.ingest("broken.tif", b"invalid")
+
     def test_reimport_corrects_empty_wrong_channel(self):
         with TemporaryDirectory(dir=Path.cwd()) as directory:
             project = Project(Path(directory))
