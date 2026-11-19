@@ -23,6 +23,7 @@ from PIL import Image, ImageTk
 from scipy import ndimage as ndi
 
 COLOR = {
+    'dark_review': (255, 158, 64),    # orange RGB
     'strong_candidate': (0, 255, 255),  # cyan RGB
     'weak_review': (255, 235, 40),     # yellow RGB
     'rejected_review': (255, 70, 205),# magenta RGB

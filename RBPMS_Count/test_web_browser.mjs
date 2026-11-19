@@ -228,13 +228,20 @@ try {
     await evalPage("document.querySelector('#manageClose').click()");
     const gray = join(temp, '16bit.tif');
     const grayFixture = spawnSync(resolve('.venv/Scripts/python.exe'), ['-c',
-        "import numpy as np, cv2, sys; from PIL import Image; x=np.zeros((128,128),np.uint16); cv2.circle(x,(45,50),12,56540,-1); Image.fromarray(x).save(sys.argv[1],compression='tiff_lzw')", gray], {encoding:'utf8'});
+        "import numpy as np, cv2, sys; from PIL import Image; x=np.zeros((128,128),np.uint16); cv2.circle(x,(45,50),12,56540,-1); cv2.circle(x,(100,100),12,10280,-1); Image.fromarray(x).save(sys.argv[1],compression='tiff_lzw')", gray], {encoding:'utf8'});
     assert.equal(grayFixture.status, 0, grayFixture.stderr);
-    await evalPage("document.querySelector('[name=labels]').value=''; document.querySelector('[name=cells]').value=''; document.querySelector('[name=channel]').value='red'");
+    await evalPage("document.querySelector('[name=labels]').value=''; document.querySelector('[name=cells]').value=''; document.querySelector('[name=channel]').value='red'; document.querySelector('[name=dark_mode]').checked=true");
     await file('image', gray);
     await evalPage("document.querySelector('#importButton').click()");
     await waitFor("document.querySelector('#status').textContent.includes('16bit.tif') && !document.querySelector('#exports').hidden");
     assert.equal(await count(), 1);
+    assert.equal((await read()).cells.filter(c => c.category === 'dark_review').length, 1);
+    await evalPage("document.querySelector('#includeDark').click()");
+    await waitFor("Number(document.querySelector('#total').textContent) === 2");
+    await evalPage("document.querySelector('#undo').click()");
+    await waitFor("Number(document.querySelector('#total').textContent) === 1");
+    await evalPage("document.querySelector('#redo').click()");
+    await waitFor("Number(document.querySelector('#total').textContent) === 2");
     const tiffBytes = Array.from(readFileSync(gray));
     assert.ok(await evalPage(`(async () => {
         const body = new FormData(); body.append('image',new File([new Uint8Array(${JSON.stringify(tiffBytes)})],'preview.tif'));

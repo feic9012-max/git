@@ -1,7 +1,7 @@
 const byId = id => document.getElementById(id);
 const canvas = byId("canvas");
 const ctx = canvas.getContext("2d");
-const colors = {strong_candidate:"#00ffff", weak_review:"#ffeb28", rejected_review:"#ff46cd"};
+const colors = {dark_review:"#ff9e40", strong_candidate:"#00ffff", weak_review:"#ffeb28", rejected_review:"#ff46cd"};
 const channels = {green:"绿色", red:"红色", auto:"自动判断"};
 const filters = [...document.querySelectorAll(".filter")];
 let state, photo, busy = false;
@@ -46,8 +46,9 @@ function controls() {
     byId("completeReview").disabled = busy || !state || completed;
     byId("reopenReview").hidden = !completed;
     byId("reopenReview").disabled = busy;
+    byId("detectDark").disabled = busy || !state || state.cells.some(cell => cell.category === "dark_review");
     const included = new Set(state?.included);
-    for (const [id, category] of [["includeWeak", "weak_review"], ["includeArtifacts", "rejected_review"]]) {
+    for (const [id, category] of [["includeDark", "dark_review"], ["includeWeak", "weak_review"], ["includeArtifacts", "rejected_review"]]) {
         byId(id).disabled = busy || !state?.cells.some(cell => cell.category === category && !included.has(cell.id));
     }
     byId("exports").hidden = !state || busy;
@@ -104,6 +105,7 @@ function update() {
     if (active) active.textContent = state.name + " · " + total;
     const values = [
         ["自动高可信", state.cells.filter(cell => cell.category === "strong_candidate").length],
+        ["确认暗细胞", state.cells.filter(cell => cell.category === "dark_review" && included.has(cell.id)).length],
         ["确认弱阳性", state.cells.filter(cell => cell.category === "weak_review" && included.has(cell.id)).length],
         ["人工新增", manual],
         ["人工排除", Object.values(state.decisions).filter(value => !value).length],
@@ -253,6 +255,8 @@ byId("undo").onclick = () => change("undo");
 byId("redo").onclick = () => change("redo");
 byId("completeReview").onclick = () => change("complete");
 byId("reopenReview").onclick = () => change("reopen");
+byId("detectDark").onclick = () => change("detect_dark");
+byId("includeDark").onclick = () => change("include_category", {category:"dark_review"});
 byId("includeWeak").onclick = () => change("include_category", {category:"weak_review"});
 byId("includeArtifacts").onclick = () => change("include_category", {category:"rejected_review"});
 for (const input of [...filters, byId("overlay"), byId("ids"), byId("lineWidth")]) input.oninput = draw;
@@ -536,7 +540,7 @@ byId("startBatch").onclick = () => run(async () => {
     }
     pauseRequested = false;
     batchRunning = true;
-    const locked = ["startBatch", "closeBatch", "scanBatch", "batchFolder", "pickBatchRoot", "batchSuffix", "batchChannel", "manageBatch"]
+    const locked = ["startBatch", "closeBatch", "scanBatch", "batchFolder", "pickBatchRoot", "batchSuffix", "batchChannel", "batchDark", "manageBatch"]
         .map(byId).concat(batchRows.flatMap(item => [item.check, item.channel]).filter(input => !input.disabled));
     for (const input of locked) input.disabled = true;
     byId("pauseBatch").disabled = false;
@@ -550,6 +554,7 @@ byId("startBatch").onclick = () => run(async () => {
             body.append("image", item.file);
             body.append("channel", item.channel.value);
             body.append("image_path", item.path);
+            if (byId("batchDark").checked) body.append("dark_mode", "on");
             try {
                 const result = await api("/api/import", {method:"POST", headers:{"X-RBPMS":"1"}, body});
                 item.done = true;

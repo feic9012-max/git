@@ -16,6 +16,37 @@ def png(image):
 
 
 class ReviewTest(unittest.TestCase):
+    def test_dark_candidates_preserve_review(self):
+        with TemporaryDirectory(dir=Path.cwd()) as directory:
+            project = Project(Path(directory))
+            image = np.zeros((160, 160, 3), np.uint8)
+            cv2.circle(image, (40, 40), 12, (0, 220, 0), -1)
+            cv2.circle(image, (110, 110), 12, (0, 40, 0), -1)
+            image_id, _ = project.ingest("faint.png", png(image))
+            initial = project.review(image_id, contours=True)
+            self.assertEqual(len(initial["cells"]), 1)
+            edited = project.review(image_id, dict(action="edit", revision=0, x=40, y=40, mode="remove"))
+            detected = project.review(image_id, dict(action="detect_dark", revision=edited["revision"]), contours=True)
+            dark = [cell for cell in detected["cells"] if cell["category"] == "dark_review"]
+            self.assertEqual(len(dark), 1)
+            self.assertEqual(detected["included"], [])
+            self.assertEqual(detected["decisions"], edited["decisions"])
+            self.assertEqual(detected["cells"][0], initial["cells"][0])
+            def change(action, **detail):
+                current = project.review(image_id)
+                return project.review(image_id, dict(action=action, revision=current["revision"], **detail))
+            self.assertEqual(change("include_category", category="dark_review")["included"], [dark[0]["id"]])
+            self.assertEqual(change("undo")["included"], [])
+            self.assertEqual(change("redo")["included"], [dark[0]["id"]])
+            self.assertEqual(change("complete")["reviewed_count"], 1)
+            change("reopen")
+            change("edit", x=110, y=110, mode="remove")
+            self.assertEqual(change("complete")["reviewed_count"], 0)
+            self.assertEqual(project.summaries()[0]["auto_count"], 1)
+            repeated = change("detect_dark")
+            self.assertEqual(len(Project(Path(directory)).review(image_id, contours=True)["cells"]), 2)
+            self.assertTrue(project.review(image_id, export="png").startswith(b"\x89PNG"))
+
     def test_tiff_import(self):
         rgb = np.zeros((128, 128, 3), np.uint8)
         cv2.circle(rgb, (45, 50), 12, (220, 0, 0), -1)

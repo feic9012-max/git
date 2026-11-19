@@ -15,6 +15,7 @@
 <form id="import">
 <label>原始图像 <input name="image" type="file" accept=".png,.tif,.tiff" required></label>
 <label>RBPMS 通道 <select name="channel"><option value="auto">自动判断</option><option value="green">绿色</option><option value="red">红色</option></select></label>
+<label><input name="dark_mode" type="checkbox"> 暗细胞识别模式（补充暗细胞候选）</label>
 <details><summary>使用已有 V3 结果</summary>
 <label>16-bit 标签图 <input name="labels" type="file" accept=".png"></label>
 <label>候选细胞表 <input name="cells" type="file" accept=".csv"></label>
@@ -45,6 +46,8 @@
 <button class="primary" id="completeReview" disabled>完成审核</button>
 <button id="reopenReview" hidden>继续审核</button>
 <div class="toolbar">
+<button id="detectDark" disabled>开启暗细胞识别</button>
+<button id="includeDark" disabled>全部纳入暗细胞</button>
 <button id="includeWeak" disabled>全部纳入弱阳性</button>
 <button id="includeArtifacts" disabled>全部纳入疑似伪影</button>
 </div>
@@ -55,6 +58,7 @@
 <label><input class="filter" type="checkbox" value="strong_candidate" checked> <i style="background:#00ffff"></i> 高可信</label>
 <label><input class="filter" type="checkbox" value="weak_review" checked> <i style="background:#ffeb28"></i> 弱阳性</label>
 <label><input class="filter" type="checkbox" value="rejected_review" checked> <i style="background:#ff46cd"></i> 疑似伪影</label>
+<label><input class="filter" type="checkbox" value="dark_review" checked> <i style="background:#ff9e40"></i> 暗细胞</label>
 <label><input id="ids" type="checkbox"> 细胞编号</label>
 <label>轮廓线宽 <input id="lineWidth" type="range" min="1" max="6" value="1"></label>
 </div>
@@ -64,6 +68,7 @@
 </main>
 <dialog id="batch">
 <h2>批量计数</h2>
+<label><input id="batchDark" type="checkbox"> 暗细胞识别模式（补充候选，审核后纳入）</label>
 <div class="toolbar">
 <button id="pickBatchRoot" type="button" hidden>选择最外层文件夹</button>
 <div id="batchDrop" class="batch-drop">从文件资源管理器把最外层文件夹拖到这里</div>

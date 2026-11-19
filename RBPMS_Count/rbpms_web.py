@@ -20,7 +20,8 @@ import cv2
 import numpy as np
 from PIL import Image, UnidentifiedImageError
 from rbpms_counter_v2 import select_channel
-from rbpms_counter_v3 import classify_image, read_png
+from rbpms_counter_v3 import classify_image, read_png, segment
+from scipy import ndimage as ndi
 from rbpms_review_gui import ReviewModel
 
 STATIC = Path(__file__).with_name("web_review")
@@ -290,9 +291,54 @@ class Project:
                             decisions[str(detail["id"])] = detail["action"] != "exclude_candidate"
                         history = history[:cursor + 1] + [self.snapshot(model, decisions)]
                         cursor += 1
+                elif action == "detect_dark":
+                    if any(c["class"] == "dark_review" for c in model.candidates.values()):
+                        message = "暗细胞识别已开启"
+                    else:
+                        signal = model.rgb[:, :, 0 if self.channel(row) == "red" else 1]
+                        faint, background = segment(signal, floor=25,
+                            min_distance=11 if self.channel(row) == "red" else 8)
+                        labels = model.labels.copy()
+                        cells = [dict(c) for c in model.candidates.values()]
+                        next_id = int(labels.max()) + 1
+                        added = []
+                        for idx, sl in enumerate(ndi.find_objects(faint), 1):
+                            if sl is None:
+                                continue
+                            mask = faint[sl] == idx
+                            # Preserve every original candidate and avoid counting it twice.
+                            if (np.any(labels[sl][mask]) or
+                                    any(faint[int(y), int(x)] == idx for x, y in state["added"].values())):
+                                continue
+                            yy, xx = np.nonzero(mask)
+                            if next_id > 65535:
+                                raise ValueError("候选数量超过标签图上限")
+                            labels[sl][mask] = next_id
+                            values = signal[sl][mask]
+                            cells.append(dict(id=next_id, x_px=float(xx.mean()+sl[1].start),
+                                y_px=float(yy.mean()+sl[0].start), area_px2=len(xx),
+                                **{"class":"dark_review", "mean_"+self.channel(row):float(values.mean()),
+                                   "max_"+self.channel(row):int(values.max())},
+                                local_contrast=float((values.astype(float)-background[sl][mask]).mean()),
+                                review_note="暗细胞补充候选，需人工审核"))
+                            added.append(next_id)
+                            next_id += 1
+                        message = f"暗细胞识别完成 · 新增 {len(added)} 个待审核候选"
+                        if added:
+                            target = self.path / "images" / image_id / f"dark-{revision+1}"
+                            target.mkdir(exist_ok=True)
+                            cv2.imencode(".png", labels.astype(np.uint16))[1].tofile(str(target / "source_v3_labels16.png"))
+                            fields = list(dict.fromkeys(k for c in cells for k in c))
+                            with (target / "source_v3_cells.csv").open("w", newline="", encoding="utf-8-sig") as file:
+                                writer = csv.DictWriter(file, fieldnames=fields)
+                                writer.writeheader()
+                                writer.writerows(cells)
+                            model = self.model(image_id, target.name)
+                            db.execute("UPDATE images SET segmentation_dir=? WHERE id=?", (target.name, image_id))
+                            detail = {"ids":added}
                 elif action == "include_category":
                     category = change.get("category")
-                    if category not in ("weak_review", "rejected_review"):
+                    if category not in ("weak_review", "rejected_review", "dark_review"):
                         raise ValueError("无效的候选分类")
                     self.restore(model, state)
                     added = [idx for idx, cell in model.candidates.items()
@@ -389,7 +435,7 @@ class Project:
         return stream.getvalue().encode("utf-8-sig")
 
 
-CLASSES = {"strong_candidate", "weak_review", "rejected_review"}
+CLASSES = {"strong_candidate", "weak_review", "rejected_review", "dark_review"}
 
 
 class Conflict(Exception):
@@ -453,13 +499,16 @@ class Handler(BaseHTTPRequestHandler):
                         *(files[key].get_payload(decode=True) if key in files else None
                           for key in ("labels", "cells")),
                         channel=field("channel", "green"), image_path=field("image_path", name))
+                    if field("dark_mode", "") == "on":
+                        current = project.review(image_id)
+                        project.review(image_id, dict(action="detect_dark", revision=current["revision"]))
                     return self.send_json(dict(id=image_id, created=created))
                 match = re.fullmatch(r"/api/images/([a-f0-9]{64})/review", path)
                 if match:
                     change = json.loads(body)
                     if not isinstance(change, dict):
                         raise ValueError("无效的审核请求")
-                    return self.send_json(project.review(match[1], change))
+                    return self.send_json(project.review(match[1], change, contours=change.get("action") == "detect_dark"))
             else:
                 if path in ("/", "/app.js", "/style.css"):
                     filename, mime = {
